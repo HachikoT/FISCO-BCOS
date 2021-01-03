@@ -32,8 +32,8 @@
 #include <libethcore/Common.h>
 #include <libethcore/CommonJS.h>
 #include <libethcore/Transaction.h>
-#include <libexecutive/ExecutionResult.h>
 #include <libledger/LedgerManager.h>
+#include <libnetwork/Host.h>
 #include <libp2p/Service.h>
 #include <libsync/SyncInterface.h>
 #include <libtxpool/TxPoolInterface.h>
@@ -59,14 +59,14 @@ public:
     FakesService() : Service()
     {
         NodeID nodeID = h512(100);
-        NodeIPEndpoint m_endpoint(std::string("127.0.0.1"), 30310);
+        NodeIPEndpoint m_endpoint(boost::asio::ip::make_address("127.0.0.1"), 30310);
         dev::network::NodeInfo node_info;
         node_info.nodeID = nodeID;
         std::set<dev::TopicItem> topicList;
         P2PSessionInfo info(node_info, m_endpoint, topicList);
         TopicItem item;
         item.topic = "Topic1";
-        item.topicStatus = TopicStatus::VERIFYI_SUCCESS_STATUS;
+        item.topicStatus = TopicStatus::VERIFY_SUCCESS_STATUS;
         topicList.insert(std::move(item));
         m_sessionInfos.push_back(P2PSessionInfo(node_info, m_endpoint, topicList));
         h512s nodeList;
@@ -74,6 +74,9 @@ public:
             h512("7dcce48da1c464c7025614a54a4e26df7d6f92cd4d315601e057c1659796736c5c8730e380fc"
                  "be637191cc2aebf4746846c0db2604adebf9c70c7f418d4d5a61"));
         m_groupID2NodeList[1] = nodeList;
+        std::shared_ptr<dev::network::Host> host = std::make_shared<dev::network::Host>();
+        host->setThreadPool(std::make_shared<dev::ThreadPool>("host", 1));
+        setHost(host);
     }
 
     P2PSessionInfos sessionInfos() override { return m_sessionInfos; }
@@ -132,7 +135,6 @@ public:
     {
         m_blockNumber = 0;
         m_totalTransactionCount = 0;
-        blockHash = h256("0x067150c07dab4facb7160e075548007e067150c07dab4facb7160e075548007e");
         blockHeader.setNumber(m_blockNumber);
         blockHeader.setParentHash(h256(0x1));
         blockHeader.setLogBloom(h2048(0x2));
@@ -145,9 +147,10 @@ public:
         blockHeader.setGasLimit(u256(9));
         blockHeader.setGasUsed(u256(8));
         blockHeader.setTimestamp(9);
-
-        createTransaction();
-        std::shared_ptr<Transaction> p_tx = std::make_shared<Transaction>(transaction);
+        blockHash = blockHeader.hash();
+        std::cout << "* MockBlockChain, genesis block hash is " << toHex(blockHash);
+        std::shared_ptr<Transaction> p_tx = createTransaction();
+        ;
         transactions = std::make_shared<Transactions>();
         transactions->push_back(p_tx);
 
@@ -174,19 +177,24 @@ public:
     {
         return std::make_shared<std::vector<dev::eth::NonceKeyType>>();
     }
-    bool checkAndBuildGenesisBlock(GenesisBlockParam& initParam, bool = true) override
+    bool checkAndBuildGenesisBlock(
+        std::shared_ptr<LedgerParamInterface> initParam, bool = true) override
     {
         m_initParam = initParam;
         return true;
     }
-    dev::h512s sealerList() override { return m_initParam.sealerList; };
-    dev::h512s observerList() override { return m_initParam.observerList; };
+    dev::h512s sealerList() override { return m_initParam->mutableConsensusParam().sealerList; };
+    dev::h512s observerList() override
+    {
+        return m_initParam->mutableConsensusParam().observerList;
+    };
+
     std::string getSystemConfigByKey(std::string const&, int64_t = -1) override
     {
         return "300000000";
     };
 
-    void createTransaction()
+    Transaction::Ptr createTransaction()
     {
         bytes rlpBytes;
         if (g_BCOSConfig.SMCrypto())
@@ -252,7 +260,10 @@ public:
         }
         RLP rlpObj(rlpBytes);
         bytesConstRef d = rlpObj.data();
-        transaction = Transaction(d, eth::CheckTransaction::Everything);
+        transaction = std::make_shared<Transaction>(d, eth::CheckTransaction::Everything);
+        std::cout << "* MockBlockChain: hash of the transaction: " << transaction->hash()
+                  << std::endl;
+        return transaction;
     }
     dev::h256 numberHash(int64_t) override { return blockHash; }
 
@@ -277,14 +288,13 @@ public:
     dev::eth::LocalisedTransactionReceipt::Ptr getLocalisedTxReceiptByHash(
         dev::h256 const& _txHash) override
     {
-        if (_txHash ==
-            jsToFixed<32>("0x7536cf1286b5ce6c110cd4fea5c891467884240c9af366d678eb4191e1c31c6f"))
+        if (_txHash == transaction->hash())
         {
             auto tx = getLocalisedTxByHash(_txHash);
             auto txReceipt = getTransactionReceiptByHash(_txHash);
             return std::make_shared<LocalisedTransactionReceipt>(*txReceipt, _txHash,
-                tx->blockHash(), tx->blockNumber(), tx->from(), tx->to(), tx->transactionIndex(),
-                txReceipt->gasUsed(), txReceipt->contractAddress());
+                tx->blockHash(), tx->blockNumber(), tx->tx()->from(), tx->tx()->to(),
+                tx->transactionIndex(), txReceipt->gasUsed(), txReceipt->contractAddress());
         }
         else
             return std::make_shared<LocalisedTransactionReceipt>(
@@ -304,14 +314,55 @@ public:
         entry.data = bytes();
         entry.topics = h256s();
         entries.push_back(entry);
-        return std::make_shared<TransactionReceipt>(h256(0x3), u256(8), entries,
-            executive::TransactionException::None, bytes(), Address(0x1000));
+        return std::make_shared<TransactionReceipt>(
+            h256(0x3), u256(8), entries, eth::TransactionException::None, bytes(), Address(0x1000));
     }
 
     std::shared_ptr<dev::eth::Block> getBlockByNumber(int64_t _i) override
     {
         return getBlockByHash(numberHash(_i));
     }
+
+    std::shared_ptr<
+        std::pair<std::shared_ptr<dev::eth::BlockHeader>, dev::eth::Block::SigListPtrType>>
+    getBlockHeaderInfo(int64_t _blockNumber) override
+    {
+        auto block = getBlockByNumber(_blockNumber);
+        if (!block)
+        {
+            return nullptr;
+        }
+        auto result = std::make_shared<
+            std::pair<std::shared_ptr<dev::eth::BlockHeader>, dev::eth::Block::SigListPtrType>>();
+        result->first = std::make_shared<BlockHeader>(block->blockHeader());
+        result->second = nullptr;
+        return result;
+    }
+
+    std::shared_ptr<
+        std::pair<std::shared_ptr<dev::eth::BlockHeader>, dev::eth::Block::SigListPtrType>>
+    getBlockHeaderInfoByHash(dev::h256 const& _blockHash) override
+    {
+        auto block = getBlockByHash(_blockHash);
+        if (!block)
+        {
+            return nullptr;
+        }
+        auto result = std::make_shared<
+            std::pair<std::shared_ptr<dev::eth::BlockHeader>, dev::eth::Block::SigListPtrType>>();
+        result->first = std::make_shared<BlockHeader>(block->blockHeader());
+        // fake sigList
+        auto hash = block->header().hash();
+        for (int i = 0; i < 9; i++)
+        {
+            auto keyPair = KeyPair::create();
+            auto signature = dev::crypto::Sign(keyPair, hash)->asBytes();
+            sigList.push_back(std::make_pair(i, signature));
+        }
+        result->second = std::make_shared<dev::eth::Block::SigListType>(sigList);
+        return result;
+    }
+
     std::pair<LocalisedTransaction::Ptr,
         std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>>>
     getTransactionByHashWithProof(dev::h256 const& _txHash) override
@@ -324,8 +375,8 @@ public:
         std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>>>
     getTransactionReceiptByHashWithProof(dev::h256 const&, dev::eth::LocalisedTransaction&) override
     {
-        return std::make_pair(std::make_shared<LocalisedTransactionReceipt>(
-                                  dev::executive::TransactionException::None),
+        return std::make_pair(
+            std::make_shared<LocalisedTransactionReceipt>(dev::eth::TransactionException::None),
             std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>>());
     }
     CommitResult commitBlock(std::shared_ptr<dev::eth::Block> block,
@@ -343,7 +394,7 @@ public:
 
     BlockHeader blockHeader;
     std::shared_ptr<Transactions> transactions;
-    Transaction transaction;
+    Transaction::Ptr transaction = std::make_shared<Transaction>();
     bytes extraData;
     Block block;
     h256 blockHash;
@@ -352,7 +403,9 @@ public:
     uint64_t m_blockNumber;
     uint64_t m_totalTransactionCount;
 
-    GenesisBlockParam m_initParam;
+    std::shared_ptr<LedgerParamInterface> m_initParam;
+
+    std::vector<std::pair<u256, std::vector<unsigned char>>> sigList;
 };
 
 class MockBlockVerifier : public BlockVerifierInterface
@@ -450,9 +503,10 @@ public:
         }
         RLP rlpObj(rlpBytes);
         bytesConstRef d = rlpObj.data();
-        transaction = Transaction(d, eth::CheckTransaction::Everything);
+        transaction = std::make_shared<Transaction>(d, eth::CheckTransaction::Everything);
         transactions = std::make_shared<dev::eth::Transactions>();
-        std::shared_ptr<Transaction> tx = std::make_shared<Transaction>(transaction);
+        std::shared_ptr<Transaction> tx =
+            std::make_shared<Transaction>(d, eth::CheckTransaction::Everything);
         transactions->push_back(tx);
     };
     virtual ~MockTxPool(){};
@@ -480,11 +534,11 @@ public:
     }
     std::pair<h256, Address> submit(dev::eth::Transaction::Ptr _tx) override
     {
-        return make_pair(_tx->sha3(), toAddress(_tx->from(), _tx->nonce()));
+        return make_pair(_tx->hash(), toAddress(_tx->from(), _tx->nonce()));
     }
     std::pair<h256, Address> submitTransactions(dev::eth::Transaction::Ptr _tx) override
     {
-        return make_pair(_tx->sha3(), toAddress(_tx->from(), _tx->nonce()));
+        return make_pair(_tx->hash(), toAddress(_tx->from(), _tx->nonce()));
     }
     dev::eth::ImportResult import(
         dev::eth::Transaction::Ptr, dev::eth::IfDropped = dev::eth::IfDropped::Ignore) override
@@ -496,13 +550,10 @@ public:
         return ImportResult::Success;
     }
 
-    SharedMutex& xtransactionKnownBy() override { return x_transactionKnownBy; }
-
 private:
     std::shared_ptr<Transactions> transactions;
-    Transaction transaction;
+    Transaction::Ptr transaction = std::make_shared<Transaction>();
     PROTOCOL_ID protocolId = 0;
-    mutable dev::SharedMutex x_transactionKnownBy;
 };
 
 class MockBlockSync : public SyncInterface
@@ -597,8 +648,17 @@ public:
         sealerList.push_back(
             dev::h512("7dcce48da1c464c7025614a54a4e26df7d6f92cd4d315601e057c1659796736c5c8730e380fc"
                       "be637191cc2aebf4746846c0db2604adebf9c70c7f418d4d5a61"));
-        GenesisBlockParam initParam = {
-            "std", sealerList, dev::h512s(), "", "", "", 1000, 300000000, 0, -1, -1, 0};
+        // init the genesis param
+        auto initParam = std::make_shared<dev::ledger::LedgerParam>();
+        initParam->mutableGenesisMark() = "std";
+        initParam->mutableConsensusParam().sealerList = sealerList;
+        initParam->mutableConsensusParam().observerList = dev::h512s();
+        initParam->mutableConsensusParam().consensusType = "";
+        initParam->mutableStorageParam().type = "";
+        initParam->mutableStateParam().type = "";
+        initParam->mutableConsensusParam().maxTransactions = 1000;
+        initParam->mutableTxParam().txGasLimit = 300000000;
+        initParam->mutableGenesisParam().timeStamp = 0;
         m_blockChain->checkAndBuildGenesisBlock(initParam);
     }
 

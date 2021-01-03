@@ -30,6 +30,7 @@
 #include <tbb/spin_mutex.h>
 #include <memory>
 #include <string>
+#include <vector>
 
 #define ROCKSDB_LOG(LEVEL) LOG(LEVEL) << LOG_BADGE("ROCKSDB")
 #define DecHookFunction std::function<void(std::string&)>
@@ -92,7 +93,11 @@ protected:
     DecHookFunction m_decryptHandler = nullptr;
 };
 rocksdb::Options getRocksDBOptions();
-std::function<void(std::string const&, std::string&)> getEncryptHandler();
-std::function<void(std::string&)> getDecryptHandler();
+std::function<void(std::string const&, std::string&)> getEncryptHandler(
+    const std::vector<uint8_t>& _encryptKey, bool _enableCompress = false);
+std::function<void(std::string&)> getDecryptHandler(
+    const std::vector<uint8_t>& _encryptKey, bool _enableCompress = false);
+
+
 }  // namespace storage
 }  // namespace dev

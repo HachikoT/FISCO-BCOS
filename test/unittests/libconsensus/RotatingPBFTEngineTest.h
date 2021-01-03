@@ -72,6 +72,7 @@ public:
         return RotatingPBFTEngine::resetChosedConsensusNodes();
     }
 
+    void registerDisconnectHandler() override { return PBFTEngine::registerDisconnectHandler(); }
     void chooseConsensusNodes() override { return RotatingPBFTEngine::chooseConsensusNodes(); }
 
     void updateConsensusInfo() override { return RotatingPBFTEngine::updateConsensusInfo(); }
@@ -185,6 +186,11 @@ public:
         std::shared_ptr<dev::p2p::P2PSession> _session, dev::p2p::P2PMessage::Ptr _message)
     {
         return RotatingPBFTEngine::onReceiveRawPrepareResponse(_session, _message);
+    }
+
+    bool wrapperGetNodeIDByIndex(dev::network::NodeID& nodeId, const IDXTYPE& idx) const
+    {
+        return PBFTEngine::getNodeIDByIndex(nodeId, idx);
     }
 
 private:

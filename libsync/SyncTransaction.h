@@ -70,7 +70,6 @@ public:
         m_msgEngine->onNotifySyncTrans([&]() { m_signalled.notify_all(); });
         m_fastForwardedNodes = std::make_shared<dev::h512s>();
         m_treeRouter = m_txQueue->treeRouter();
-        m_txsHash = std::make_shared<std::map<dev::h512, std::shared_ptr<std::set<dev::h256>>>>();
     }
 
     virtual ~SyncTransaction() { stop(); };
@@ -162,7 +161,6 @@ private:
     std::shared_ptr<dev::h512s> m_fastForwardedNodes;
 
     TreeTopology::Ptr m_treeRouter;
-    std::shared_ptr<std::map<dev::h512, std::shared_ptr<std::set<dev::h256>>>> m_txsHash;
 
     unsigned m_txsStatusGossipMaxPeers = 5;
 
@@ -173,7 +171,7 @@ private:
 
     void broadcastTransactions(std::shared_ptr<dev::p2p::NodeIDs> _selectedPeers,
         std::shared_ptr<dev::eth::Transactions> _ts, bool const& _fastForwardRemainTxs,
-        int64_t const& _startIndex, bool const& _fromRpc);
+        int64_t const& _startIndex);
 
     void sendTransactions(std::shared_ptr<dev::eth::Transactions> _ts,
         bool const& _fastForwardRemainTxs, int64_t const& _startIndex);

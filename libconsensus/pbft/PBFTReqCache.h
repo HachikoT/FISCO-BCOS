@@ -51,7 +51,8 @@ public:
         {
             return false;
         }
-        return m_rawPrepareCache->block_hash == req.block_hash;
+        return (m_rawPrepareCache->block_hash == req.block_hash) &&
+               (m_rawPrepareCache->view >= req.view);
     }
 
     PrepareReq::Ptr rawPrepareCachePtr() { return m_rawPrepareCache; }
@@ -298,7 +299,7 @@ public:
 
     // When the node restarts and the view becomes smaller, call this function to clear the history
     // cache
-    void eraseLatestViewChangeCacheForNodeUpdated(ViewChangeReq const& _req);
+    void eraseLatestViewChangeCacheForNodeUpdated(IDXTYPE const& _reqIdx);
 
     void addViewChangeReq(ViewChangeReq::Ptr _req, int64_t const& _blockNumber = 0);
 
@@ -379,7 +380,8 @@ public:
         m_recvViewChangeReq.clear();
     }
 
-    virtual void removeInvalidFutureCache(int64_t const& _highestBlockNumber);
+    virtual void removeInvalidFutureCache(
+        int64_t const& _highestBlockNumber, VIEWTYPE const& _view = 0);
 
     // only used for UT
     inline void clearAll()
@@ -424,6 +426,12 @@ public:
     void setCheckSignCallback(std::function<bool(PBFTMsg const&)> const& _checkSignCallback)
     {
         m_checkSignCallback = _checkSignCallback;
+    }
+
+    // for ut
+    std::shared_ptr<std::unordered_map<IDXTYPE, ViewChangeReq::Ptr>> latestViewChangeReqCache()
+    {
+        return m_latestViewChangeReqCache;
     }
 
 protected:
@@ -476,6 +484,10 @@ protected:
             }
         }
     }
+
+    void removeExpiredSignCache(h256 const& _blockHash, VIEWTYPE const& _view);
+    void removeExpiredCommitCache(h256 const& _blockHash, VIEWTYPE const& _view);
+
     /// remove sign cache according to block hash and view
     void removeInvalidSignCache(h256 const& blockHash, VIEWTYPE const& view);
     /// remove commit cache according to block hash and view

@@ -23,7 +23,6 @@
 
 #include <libethcore/ABIParser.h>
 #include <libethcore/Exceptions.h>
-#include <libexecutive/ExecutionResult.h>
 #include <libprecompiled/ParallelConfigPrecompiled.h>
 #include <libstorage/StorageException.h>
 #include <libstorage/Table.h>
@@ -73,11 +72,22 @@ dev::precompiled::PrecompiledExecResult::Ptr ExecutiveContext::call(
             << "PrecompiledException" << LOG_KV("address", address) << LOG_KV("message:", e.what());
         BOOST_THROW_EXCEPTION(e);
     }
-    catch (dev::storage::StorageException& e)
+    catch (dev::storage::StorageException const& e)
     {
-        EXECUTIVECONTEXT_LOG(ERROR) << "StorageException" << LOG_KV("address", address)
-                                    << LOG_KV("errorCode", e.errorCode());
-        throw dev::eth::PrecompiledError();
+        // throw PrecompiledError when supported_version < v2.7.0
+        if (g_BCOSConfig.version() < V2_7_0)
+        {
+            EXECUTIVECONTEXT_LOG(ERROR) << "StorageException" << LOG_KV("address", address)
+                                        << LOG_KV("errorCode", e.errorCode());
+            throw dev::eth::PrecompiledError();
+        }
+        else
+        {
+            dev::precompiled::PrecompiledException precompiledException(e);
+            EXECUTIVECONTEXT_LOG(ERROR)
+                << LOG_DESC("precompiledException") << LOG_KV("msg", e.what());
+            throw precompiledException;
+        }
     }
     catch (std::exception& e)
     {
@@ -127,7 +137,7 @@ void ExecutiveContext::setState(std::shared_ptr<dev::executive::StateFace> state
     m_stateFace = state;
 }
 
-bool ExecutiveContext::isOrginPrecompiled(Address const& _a) const
+bool ExecutiveContext::isEthereumPrecompiled(Address const& _a) const
 {
     return m_precompiledContract.count(_a);
 }
@@ -183,7 +193,7 @@ std::shared_ptr<std::vector<std::string>> ExecutiveContext::getTxCriticals(const
     }
     else
     {
-        uint32_t selector = m_parallelConfigPrecompiled->getParamFunc(ref(_tx.data()));
+        uint32_t selector = dev::precompiled::getParamFunc(ref(_tx.data()));
 
         auto receiveAddress = _tx.receiveAddress();
         std::shared_ptr<dev::precompiled::ParallelConfig> config = nullptr;

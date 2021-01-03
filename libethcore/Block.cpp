@@ -61,8 +61,7 @@ Block::Block(Block const& _block)
   : m_blockHeader(_block.blockHeader()),
     m_transactions(std::make_shared<Transactions>(*_block.transactions())),
     m_transactionReceipts(std::make_shared<TransactionReceipts>(*_block.transactionReceipts())),
-    m_sigList(std::make_shared<std::vector<std::pair<u256, std::vector<unsigned char>>>>(
-        *_block.sigList())),
+    m_sigList(std::make_shared<SigListType>(*_block.sigList())),
     m_txsCache(_block.m_txsCache),
     m_tReceiptsCache(_block.m_tReceiptsCache),
     m_transRootCache(_block.m_transRootCache),
@@ -77,8 +76,7 @@ Block& Block::operator=(Block const& _block)
     /// init transactionReceipts
     m_transactionReceipts = std::make_shared<TransactionReceipts>(*_block.transactionReceipts());
     /// init sigList
-    m_sigList = std::make_shared<std::vector<std::pair<u256, std::vector<unsigned char>>>>(
-        *_block.sigList());
+    m_sigList = std::make_shared<SigListType>(*_block.sigList());
     m_txsCache = _block.m_txsCache;
     m_tReceiptsCache = _block.m_tReceiptsCache;
     m_transRootCache = _block.m_transRootCache;
@@ -201,7 +199,7 @@ void Block::calTransactionRootV2_2_0(bool update) const
                     RLPStream s;
                     s << i;
                     dev::bytes byteValue = s.out();
-                    dev::h256 hValue = ((*m_transactions)[i])->sha3();
+                    dev::h256 hValue = ((*m_transactions)[i])->hash();
                     byteValue.insert(byteValue.end(), hValue.begin(), hValue.end());
                     transactionList[i] = byteValue;
                 }
@@ -235,7 +233,7 @@ std::shared_ptr<std::map<std::string, std::vector<std::string>>> Block::getTrans
                 RLPStream s;
                 s << i;
                 dev::bytes byteValue = s.out();
-                dev::h256 hValue = ((*m_transactions)[i])->sha3();
+                dev::h256 hValue = ((*m_transactions)[i])->hash();
                 byteValue.insert(byteValue.end(), hValue.begin(), hValue.end());
                 transactionList[i] = byteValue;
             }
@@ -245,7 +243,7 @@ std::shared_ptr<std::map<std::string, std::vector<std::string>>> Block::getTrans
     return merklePath;
 }
 
-void Block::getReceiptAndSha3(RLPStream& txReceipts, std::vector<dev::bytes>& receiptList) const
+void Block::getReceiptAndHash(RLPStream& txReceipts, std::vector<dev::bytes>& receiptList) const
 {
     txReceipts.appendList(m_transactionReceipts->size());
     receiptList.resize(m_transactionReceipts->size());
@@ -254,7 +252,7 @@ void Block::getReceiptAndSha3(RLPStream& txReceipts, std::vector<dev::bytes>& re
             for (uint32_t i = _r.begin(); i < _r.end(); ++i)
             {
                 (*m_transactionReceipts)[i]->receipt();
-                dev::bytes receiptHash = (*m_transactionReceipts)[i]->sha3();
+                dev::bytes receiptHash = (*m_transactionReceipts)[i]->hash();
                 RLPStream s;
                 s << i;
                 dev::bytes receiptValue = s.out();
@@ -278,7 +276,7 @@ void Block::calReceiptRootV2_2_0(bool update) const
     {
         RLPStream txReceipts;
         std::vector<dev::bytes> receiptList;
-        getReceiptAndSha3(txReceipts, receiptList);
+        getReceiptAndHash(txReceipts, receiptList);
         txReceipts.swapOut(m_tReceiptsCache);
         m_receiptRootCache = dev::getHash256(receiptList);
     }
@@ -300,7 +298,7 @@ std::shared_ptr<std::map<std::string, std::vector<std::string>>> Block::getRecei
 
     RLPStream txReceipts;
     std::vector<dev::bytes> receiptList;
-    getReceiptAndSha3(txReceipts, receiptList);
+    getReceiptAndHash(txReceipts, receiptList);
     std::shared_ptr<std::map<std::string, std::vector<std::string>>> merklePath =
         std::make_shared<std::map<std::string, std::vector<std::string>>>();
     dev::getMerkleProof(receiptList, merklePath);
@@ -452,7 +450,7 @@ void Block::decode(
         BOOST_THROW_EXCEPTION(ErrorBlockHash() << errinfo_comment("BlockHeader hash error"));
     }
     /// get sig_list
-    m_sigList = std::make_shared<std::vector<std::pair<u256, std::vector<unsigned char>>>>(
+    m_sigList = std::make_shared<SigListType>(
         block_rlp[4].toVector<std::pair<u256, std::vector<unsigned char>>>());
 }
 
@@ -480,7 +478,7 @@ void Block::decodeRC2(
         BOOST_THROW_EXCEPTION(ErrorBlockHash() << errinfo_comment("BlockHeader hash error"));
     }
     /// get sig_list
-    m_sigList = std::make_shared<std::vector<std::pair<u256, std::vector<unsigned char>>>>(
+    m_sigList = std::make_shared<SigListType>(
         block_rlp[3].toVector<std::pair<u256, std::vector<unsigned char>>>());
 
     /// get transactionReceipt list

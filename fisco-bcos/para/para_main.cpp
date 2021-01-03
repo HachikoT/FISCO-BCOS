@@ -64,7 +64,7 @@ void genTxUserAddBlock(Block& _block, size_t _userNum)
         Transaction::Ptr tx =
             std::make_shared<Transaction>(value, gasPrice, gas, dest, data, nonce);
         tx->setBlockLimit(250);
-        auto sig = dev::crypto::Sign(*keyPair, tx->sha3(WithoutSignature));
+        auto sig = dev::crypto::Sign(*keyPair, tx->hash(WithoutSignature));
         tx->updateSignature(sig);
         txs->push_back(tx);
     }
@@ -120,7 +120,7 @@ void genTxUserTransfer(Block& _block, size_t _userNum, size_t _txNum)
         Transaction::Ptr tx =
             std::make_shared<Transaction>(value, gasPrice, gas, dest, data, nonce);
         tx->setBlockLimit(250);
-        auto sig = crypto::Sign(*keyPair, tx->sha3(WithoutSignature));
+        auto sig = crypto::Sign(*keyPair, tx->hash(WithoutSignature));
         tx->updateSignature(sig);
         txs->push_back(tx);
     }
@@ -155,9 +155,14 @@ static void startExecute(int _totalUser, int _totalTxs)
     blockChain->setStateStorage(dbInitializer->storage());
     blockChain->setTableFactoryFactory(dbInitializer->tableFactoryFactory());
 
-    GenesisBlockParam initParam = {"", dev::h512s(), dev::h512s(), "consensusType", "storageType",
-        "stateType", 5000, 300000000, 0, -1, -1, 0};
-    bool ret = blockChain->checkAndBuildGenesisBlock(initParam);
+    params->mutableGenesisMark() = "";
+    params->mutableConsensusParam().sealerList = dev::h512s();
+    params->mutableConsensusParam().observerList = dev::h512s();
+    params->mutableConsensusParam().consensusType = "";
+    params->mutableConsensusParam().maxTransactions = 5000;
+    params->mutableTxParam().txGasLimit = 300000000;
+    params->mutableGenesisParam().timeStamp = 0;
+    bool ret = blockChain->checkAndBuildGenesisBlock(params);
     assert(ret == true);
 
     dev::h256 genesisHash = blockChain->getBlockByNumber(0)->headerHash();

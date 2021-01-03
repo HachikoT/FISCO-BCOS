@@ -67,6 +67,9 @@ public:
     virtual void onMessage(dev::network::NetworkException e, dev::network::SessionFace::Ptr session,
         dev::network::Message::Ptr message, P2PSession::Ptr p2pSession);
 
+    void onLocalAMOPMessage(
+        P2PMessage::Ptr message, CallbackFuncWithSession callback, dev::network::Options options);
+
     std::shared_ptr<P2PMessage> sendMessageByNodeID(
         NodeID nodeID, std::shared_ptr<P2PMessage> message) override;
     void asyncSendMessageByNodeID(NodeID nodeID, std::shared_ptr<P2PMessage> message,
@@ -88,7 +91,11 @@ public:
     void registerHandlerByProtoclID(
         PROTOCOL_ID protocolID, CallbackFuncWithSession handler) override;
 
+    void registerDisconnectHandlerByProtocolID(PROTOCOL_ID const& _protocolID,
+        DisconnectCallbackFuncWithSession _disconnectHandler) override;
+
     void removeHandlerByProtocolID(PROTOCOL_ID const& _protocolID) override;
+    void removeDisconnectHandlerByProtocolID(PROTOCOL_ID const& _protocolID) override;
 
     void registerHandlerByTopic(std::string topic, CallbackFuncWithSession handler) override;
 
@@ -132,7 +139,7 @@ public:
         ++m_topicSeq;
     }
 
-    virtual std::shared_ptr<dev::network::Host> host() { return m_host; }
+    virtual std::shared_ptr<dev::network::Host> host() override { return m_host; }
     virtual void setHost(std::shared_ptr<dev::network::Host> host) { m_host = host; }
 
     std::shared_ptr<P2PMessageFactory> p2pMessageFactory() override { return m_p2pMessageFactory; }
@@ -149,6 +156,14 @@ public:
     void setCallbackFuncForTopicVerify(CallbackFuncForTopicVerify channelRpcCallBack) override
     {
         m_channelRpcCallBack = channelRpcCallBack;
+    }
+
+    RecursiveMutex& localAMOPCallbacksLock() { return x_localAMOPCallbacks; }
+    std::shared_ptr<std::unordered_map<uint32_t,
+        std::pair<std::shared_ptr<boost::asio::deadline_timer>, dev::p2p::CallbackFuncWithSession>>>
+    localAMOPCallbacks()
+    {
+        return m_localAMOPCallbacks;
     }
 
     CallbackFuncForTopicVerify callbackFuncForTopicVerify() override
@@ -184,6 +199,8 @@ public:
     }
 
 private:
+    void callDisconnectHandlers(dev::network::NetworkException _e, P2PSession::Ptr _p2pSession);
+
     NodeIDs getPeersByTopic(std::string const& topic);
     void checkWhitelistAndClearSession();
 
@@ -224,6 +241,9 @@ private:
 
     std::shared_ptr<std::unordered_map<uint32_t, CallbackFuncWithSession>> m_protocolID2Handler;
     RecursiveMutex x_protocolID2Handler;
+    std::shared_ptr<std::unordered_map<uint32_t, DisconnectCallbackFuncWithSession>>
+        m_protocolID2DisconnectHandler;
+    mutable SharedMutex x_protocolID2DisconnectHandler;
 
     ///< A call B, the function to call after the request is received by B in topic.
     std::shared_ptr<std::unordered_map<std::string, CallbackFuncWithSession>> m_topic2Handler;
@@ -233,7 +253,6 @@ private:
     KeyPair m_alias;
 
     std::shared_ptr<boost::asio::deadline_timer> m_timer;
-
 
     CallbackFuncForTopicVerify m_channelRpcCallBack;
 
@@ -252,6 +271,11 @@ private:
 
     dev::flowlimit::RateLimiter::Ptr m_nodeBandwidthLimiter;
     dev::stat::ChannelNetworkStatHandler::Ptr m_channelNetworkStatHandler;
+
+    mutable RecursiveMutex x_localAMOPCallbacks;
+    std::shared_ptr<std::unordered_map<uint32_t,
+        std::pair<std::shared_ptr<boost::asio::deadline_timer>, dev::p2p::CallbackFuncWithSession>>>
+        m_localAMOPCallbacks;
 };
 
 }  // namespace p2p

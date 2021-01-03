@@ -35,8 +35,9 @@
  * Add send topicSeq
  */
 #include "Host.h"
-#include "Common.h"                    // for HOST_LOG
-#include "Session.h"                   // for Sessio...
+#include "Common.h"   // for HOST_LOG
+#include "Session.h"  // for Sessio...
+#include "libdevcore/CommonData.h"
 #include "libdevcore/Guards.h"         // for Guard
 #include "libdevcore/ThreadPool.h"     // for Thread...
 #include "libnetwork/ASIOInterface.h"  // for ASIOIn...
@@ -93,9 +94,7 @@ void Host::startAccept(boost::system::error_code boost_error)
                 }
 
                 /// if the connected peer over the limitation, drop socket
-                socket->setNodeIPEndpoint(
-                    NodeIPEndpoint(endpoint.address().to_string(), to_string(endpoint.port())));
-
+                socket->setNodeIPEndpoint(endpoint);
                 HOST_LOG(INFO) << LOG_DESC("P2P Recv Connect, From=") << endpoint;
                 /// register ssl callback to get the NodeID of peers
                 std::shared_ptr<std::string> endpointPublicKey = std::make_shared<std::string>();
@@ -158,42 +157,11 @@ std::function<bool(bool, boost::asio::ssl::verify_context&)> Host::newVerifyCall
             }
 
             BASIC_CONSTRAINTS_free(basic);
-
-            EVP_PKEY* evpPublicKey = X509_get_pubkey(cert);
-            if (!evpPublicKey)
+            if (!getPublicKeyFromCert(nodeIDOut, cert))
             {
-                HOST_LOG(ERROR) << LOG_DESC("Get evpPublicKey failed");
                 return preverified;
             }
 
-            ec_key_st* ecPublicKey = EVP_PKEY_get1_EC_KEY(evpPublicKey);
-            if (!ecPublicKey)
-            {
-                HOST_LOG(ERROR) << LOG_DESC("Get ecPublicKey failed");
-                return preverified;
-            }
-            /// get public key of the certificate
-            const EC_POINT* ecPoint = EC_KEY_get0_public_key(ecPublicKey);
-            if (!ecPoint)
-            {
-                HOST_LOG(ERROR) << LOG_DESC("Get ecPoint failed");
-                return preverified;
-            }
-
-            std::shared_ptr<char> hex =
-                std::shared_ptr<char>(EC_POINT_point2hex(EC_KEY_get0_group(ecPublicKey), ecPoint,
-                                          EC_KEY_get_conv_form(ecPublicKey), NULL),
-                    [](char* p) { OPENSSL_free(p); });
-
-            if (hex)
-            {
-                nodeIDOut->assign(hex.get());
-                if (nodeIDOut->find("04") == 0)
-                {
-                    /// remove 04
-                    nodeIDOut->erase(0, 2);
-                }
-            }
             /// check nodeID in certBlacklist, only filter by nodeID.
             const std::vector<std::string>& certBlacklist = host->certBlacklist();
             std::string nodeID = boost::to_upper_copy(*nodeIDOut);
@@ -233,6 +201,50 @@ std::function<bool(bool, boost::asio::ssl::verify_context&)> Host::newVerifyCall
             return preverified;
         }
     };
+}
+
+NodeInfo Host::nodeInfo()
+{
+    try
+    {
+        if (m_nodeInfo.nodeID == h512())
+        {
+            /// get certificate
+            auto sslContext = m_asioInterface->sslContext()->native_handle();
+            X509* cert = SSL_CTX_get0_certificate(sslContext);
+
+            /// get issuer name
+            const char* issuer = X509_NAME_oneline(X509_get_issuer_name(cert), NULL, 0);
+            std::string issuerName(issuer);
+
+            /// get subject name
+            const char* subject = X509_NAME_oneline(X509_get_subject_name(cert), NULL, 0);
+            std::string subjectName(subject);
+
+            /// get nodeID
+            std::shared_ptr<std::string> nodeIDOut = std::make_shared<std::string>();
+            if (getPublicKeyFromCert(nodeIDOut, cert))
+            {
+                std::string nodeID = boost::to_upper_copy(*nodeIDOut);
+                m_nodeInfo.nodeID = NodeID(nodeID);
+            }
+
+            /// fill in the node informations
+            m_nodeInfo.agencyName = obtainCommonNameFromSubject(issuerName);
+            m_nodeInfo.nodeName = obtainCommonNameFromSubject(subjectName);
+
+            /// free resources
+            OPENSSL_free((void*)issuer);
+            OPENSSL_free((void*)subject);
+        }
+    }
+    catch (std::exception& e)
+    {
+        HOST_LOG(ERROR) << LOG_DESC("Get node information from cert failed.")
+                        << boost::diagnostic_information(e);
+        return m_nodeInfo;
+    }
+    return m_nodeInfo;
 }
 
 /**
@@ -301,7 +313,7 @@ void Host::handshakeServer(const boost::system::error_code& error,
         HOST_LOG(WARNING) << LOG_DESC("handshakeServer Handshake failed")
                           << LOG_KV("errorValue", error.value())
                           << LOG_KV("message", error.message())
-                          << LOG_KV("endpoint", socket->nodeIPEndpoint().name());
+                          << LOG_KV("endpoint", socket->nodeIPEndpoint());
         socket->close();
         return;
     }
@@ -410,13 +422,13 @@ void Host::asyncConnect(NodeIPEndpoint const& _nodeIPEndpoint,
     {
         return;
     }
-    HOST_LOG(INFO) << LOG_DESC("Connecting to node") << LOG_KV("endpoint", _nodeIPEndpoint.name());
+    HOST_LOG(INFO) << LOG_DESC("Connecting to node") << LOG_KV("endpoint", _nodeIPEndpoint);
     {
         Guard l(x_pendingConns);
-        if (m_pendingConns.count(_nodeIPEndpoint.name()))
+        if (m_pendingConns.count(_nodeIPEndpoint))
         {
             LOG(TRACE) << LOG_DESC("asyncConnected node is in the pending list")
-                       << LOG_KV("endpoint", _nodeIPEndpoint.name());
+                       << LOG_KV("endpoint", _nodeIPEndpoint);
             return;
         }
     }
@@ -442,7 +454,7 @@ void Host::asyncConnect(NodeIPEndpoint const& _nodeIPEndpoint,
         if (socket->isConnected())
         {
             LOG(WARNING) << LOG_DESC("AsyncConnect timeout erase")
-                         << LOG_KV("endpoint", _nodeIPEndpoint.name());
+                         << LOG_KV("endpoint", _nodeIPEndpoint);
             erasePendingConns(_nodeIPEndpoint);
             socket->close();
         }
@@ -451,9 +463,9 @@ void Host::asyncConnect(NodeIPEndpoint const& _nodeIPEndpoint,
     m_asioInterface->asyncResolveConnect(socket, [=](boost::system::error_code const& ec) {
         if (ec)
         {
-            HOST_LOG(WARNING) << LOG_DESC("TCP Connection refused by node")
-                              << LOG_KV("endpoint", _nodeIPEndpoint.name())
-                              << LOG_KV("message", ec.message());
+            HOST_LOG(ERROR) << LOG_DESC("TCP Connection refused by node")
+                            << LOG_KV("endpoint", _nodeIPEndpoint)
+                            << LOG_KV("message", ec.message());
             socket->close();
 
             m_threadPool->enqueue([callback, _nodeIPEndpoint]() {
@@ -493,7 +505,7 @@ void Host::handshakeClient(const boost::system::error_code& error,
     if (error)
     {
         HOST_LOG(WARNING) << LOG_DESC("handshakeClient failed")
-                          << LOG_KV("endpoint", _nodeIPEndpoint.name())
+                          << LOG_KV("endpoint", _nodeIPEndpoint)
                           << LOG_KV("errorValue", error.value())
                           << LOG_KV("message", error.message());
 

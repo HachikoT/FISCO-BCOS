@@ -3,12 +3,15 @@ include(GNUInstallDirs)
 
 ExternalProject_Add(GroupSigLib
     PREFIX ${CMAKE_SOURCE_DIR}/deps
-    DOWNLOAD_NAME group_sig_lib-6c5e7d47.tgz
+    DOWNLOAD_NAME group_sig_lib-868ec9ba.tar.gz
     DOWNLOAD_NO_PROGRESS 1
-    URL https://github.com/FISCO-BCOS/group-signature-lib/archive/6c5e7d47cb4cb43b15da064e3793727dd1b59192.tar.gz
-    URL_HASH SHA256=13b74d8027eb0b03b5f224b56793c833fd1a7404bccd31d94e600e397d4b239a
+    URL https://github.com/FISCO-BCOS/group-signature-lib/archive/868ec9bad9facc8bb6059216e913194c08a62cfb.tar.gz
+    URL_HASH SHA256=a038561bd3f956e38fa4a49114a7386f47950c03d81ddb0ac9fb479889aa13f4
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DCRYPTOPP_ROOT=<INSTALL_DIR>
+    -DJSONCPP_ROOT=<INSTALL_DIR>
+    -DARCH_NATIVE=${ARCH_NATIVE}
     LOG_CONFIGURE 1
     LOG_BUILD 1
     LOG_INSTALL 1
@@ -49,5 +52,6 @@ file(MAKE_DIRECTORY ${GROUPSIG_INCLUDE_DIR})  # Must exist.
 set_property(TARGET GroupSig PROPERTY IMPORTED_LOCATION ${GROUPSIG_LIBRARY})
 set_property(TARGET GroupSig PROPERTY INTERFACE_LINK_LIBRARIES PbcSig Pbc Gmp)
 set_property(TARGET GroupSig PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${GROUPSIG_INCLUDE_DIR} ${DEPS_INCLUDE_DIR})
+add_dependencies(GroupSigLib Cryptopp JsonCpp)
 add_dependencies(GroupSig GroupSigLib)
 unset(SOURCE_DIR)

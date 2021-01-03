@@ -32,6 +32,7 @@
 #include <libethcore/Transaction.h>
 #include <libinitializer/LedgerInitializer.h>
 #include <libledger/LedgerManager.h>
+#include <libprecompiled/Common.h>
 #include <boost/thread/tss.hpp>  // for thread_specific_ptr
 #include <string>                // for string
 
@@ -99,6 +100,7 @@ public:
 
     // p2p part
     Json::Value getClientVersion() override;
+    Json::Value getNodeInfo() override;
     Json::Value getPeers(int) override;
     Json::Value getGroupPeers(int _groupID) override;
     Json::Value getGroupList() override;
@@ -106,9 +108,15 @@ public:
 
     // block part
     Json::Value getBlockByHash(
-        int _groupID, const std::string& _blockHash, bool _includeTransactions) override;
+        int _groupID, const std::string& _blockHash, bool _includeAllData) override;
     Json::Value getBlockByNumber(
-        int _groupID, const std::string& _blockNumber, bool _includeTransactions) override;
+        int _groupID, const std::string& _blockNumber, bool _includeAllData) override;
+
+    Json::Value getBlockHeaderByNumber(
+        int _groupID, const std::string& _blockNumber, bool _includeSigList = false) override;
+    Json::Value getBlockHeaderByHash(
+        int _groupID, const std::string& _blockHash, bool _includeSigList = false) override;
+
     std::string getBlockHashByNumber(int _groupID, const std::string& _blockNumber) override;
 
     // transaction part
@@ -139,6 +147,12 @@ public:
     Json::Value removeGroup(int _groupID) override;
     Json::Value recoverGroup(int _groupID) override;
     Json::Value queryGroupStatus(int _groupID) override;
+
+    Json::Value getBatchReceiptsByBlockNumberAndRange(int _groupID, const std::string& _blockNumber,
+        std::string const& _from, std::string const& _count, bool compress = true) override;
+    Json::Value getBatchReceiptsByBlockHashAndRange(int _groupID, const std::string& _blockHash,
+        std::string const& _from, std::string const& _count, bool compress = true) override;
+
 
     void setCurrentTransactionCallback(
         std::function<void(const std::string& receiptContext, GROUP_ID _groupId)>* _callback,
@@ -182,10 +196,21 @@ protected:
     void addProofToResponse(std::shared_ptr<Json::Value> _response, std::string const& _key,
         std::shared_ptr<dev::blockchain::MerkleProofType> _proofList);
 
+    void generateBlockHeaderInfo(Json::Value& _response, dev::eth::BlockHeader const& _blockHeader,
+        dev::eth::Block::SigListPtrType _signatureList, bool _includeSigList,
+        bool _withHexBlockNumber);
+
+
     std::shared_ptr<dev::ledger::LedgerManager> m_ledgerManager;
     dev::initializer::LedgerInitializer::Ptr m_ledgerInitializer;
 
     std::shared_ptr<dev::p2p::P2PInterface> m_service;
+
+    const std::set<std::string> c_supportedSystemConfigKeys = {
+        dev::precompiled::SYSTEM_KEY_TX_COUNT_LIMIT, dev::precompiled::SYSTEM_KEY_TX_GAS_LIMIT,
+        dev::precompiled::SYSTEM_KEY_RPBFT_EPOCH_BLOCK_NUM,
+        dev::precompiled::SYSTEM_KEY_RPBFT_EPOCH_SEALER_NUM,
+        dev::precompiled::SYSTEM_KEY_CONSENSUS_TIMEOUT};
 
 private:
     bool isValidNodeId(dev::bytes const& precompileData,
@@ -207,9 +232,9 @@ private:
 
     /// transaction callback related
     boost::thread_specific_ptr<
-        std::function<void(const std::string& receiptContext, GROUP_ID _groupId)> >
+        std::function<void(const std::string& receiptContext, GROUP_ID _groupId)>>
         m_currentTransactionCallback;
-    boost::thread_specific_ptr<std::function<uint32_t()> > m_transactionCallbackVersion;
+    boost::thread_specific_ptr<std::function<uint32_t()>> m_transactionCallbackVersion;
 
     void checkRequest(int _groupID);
     void checkSyncStatus(int _groupID);
@@ -221,6 +246,18 @@ private:
     bool checkSealerID(const std::string& _sealer);
     bool checkTimestamp(const std::string& _timestamp);
     bool checkConnection(const std::set<std::string>& _sealerList, Json::Value& _response);
+
+    void parseTransactionIntoResponse(Json::Value& _response, dev::h256 const& _blockHash,
+        int64_t _blockNumber, int64_t _txIndex, Transaction::Ptr _tx, bool onChain = true);
+
+    void parseReceiptIntoResponse(Json::Value& _response, dev::bytesConstRef _input,
+        dev::eth::LocalisedTransactionReceipt::Ptr _receipt);
+
+    void parseSignatureIntoResponse(
+        Json::Value& _response, dev::eth::Block::SigListPtrType _signatureList);
+
+    void getBatchReceipts(Json::Value& _response, dev::eth::Block::Ptr _block,
+        std::string const& _from, std::string const& _size, bool _compress);
 };
 
 }  // namespace rpc

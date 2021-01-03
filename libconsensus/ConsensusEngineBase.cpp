@@ -93,6 +93,13 @@ void ConsensusEngineBase::checkBlockValid(Block const& block)
                           << LOG_KV("utcTime", utcTime()) << LOG_KV("hash", block_hash.abridged());
         BOOST_THROW_EXCEPTION(DisabledFutureTime() << errinfo_comment("Future time Disabled"));
     }
+    // check block timestamp: only enabled after v2.6.0
+    // don't check timestamp of the genesis block
+    if (block.blockHeader().number() >= 1)
+    {
+        checkBlockTimeStamp(block);
+    }
+
     /// check the block number
     if (block.blockHeader().number() <= m_blockChain->number())
     {
@@ -125,6 +132,26 @@ void ConsensusEngineBase::checkBlockValid(Block const& block)
             BOOST_THROW_EXCEPTION(
                 WrongParentHash() << errinfo_comment("Invalid block for unconsistent parentHash"));
         }
+    }
+}
+
+void ConsensusEngineBase::checkBlockTimeStamp(dev::eth::Block const& _block)
+{
+    if (!m_nodeTimeMaintenance)
+    {
+        return;
+    }
+    int64_t blockTimeStamp = _block.blockHeader().timestamp();
+    auto alignedTime = getAlignedTime();
+    // the blockTime must be within 30min of the current time
+    if (std::abs(blockTimeStamp - alignedTime) > m_maxBlockTimeOffset)
+    {
+        // The block time is too different from the current time
+        ENGINE_LOG(WARNING)
+            << LOG_DESC("checkBlockTimeStamp: the block time is too different from the local time")
+            << LOG_KV("blockTime", blockTimeStamp) << LOG_KV("alignedTime", alignedTime)
+            << LOG_KV("utcTime", utcTime()) << LOG_KV("blkNum", _block.blockHeader().number())
+            << LOG_KV("hash", _block.blockHeader().hash().abridged());
     }
 }
 
@@ -258,7 +285,7 @@ void ConsensusEngineBase::reportBlock(dev::eth::Block const& _block)
         auto receipt = (*receipts)[receiptIndex];
         auto gasUsed = receipt->gasUsed() - prevGasUsed;
         STAT_LOG(INFO) << LOG_TYPE("TxsGasUsed") << LOG_KV("g", m_groupId)
-                       << LOG_KV("txHash", toHex(tx->sha3())) << LOG_KV("gasUsed", gasUsed);
+                       << LOG_KV("txHash", toHex(tx->hash())) << LOG_KV("gasUsed", gasUsed);
         prevGasUsed = receipt->gasUsed();
         receiptIndex++;
     }

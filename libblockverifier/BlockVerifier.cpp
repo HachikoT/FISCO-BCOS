@@ -26,7 +26,6 @@
 #include <libethcore/Exceptions.h>
 #include <libethcore/PrecompiledContract.h>
 #include <libethcore/TransactionReceipt.h>
-#include <libexecutive/ExecutionResult.h>
 #include <libstorage/Table.h>
 #include <tbb/parallel_for.h>
 #include <exception>
@@ -123,17 +122,14 @@ ExecutiveContext::Ptr BlockVerifier::serialExecuteBlock(
 
     try
     {
-        auto executive = createAndInitExecutive();
         EnvInfo envInfo(block.blockHeader(), m_pNumberHash, 0);
         envInfo.setPrecompiledEngine(executiveContext);
-        executive->setEnvInfo(envInfo);
-        executive->setState(executiveContext->getState());
+        auto executive = createAndInitExecutive(executiveContext->getState(), envInfo);
         for (size_t i = 0; i < block.transactions()->size(); i++)
         {
             auto& tx = (*block.transactions())[i];
 
-            TransactionReceipt::Ptr resultReceipt =
-                execute(tx, OnOpFunc(), executiveContext, executive);
+            TransactionReceipt::Ptr resultReceipt = execute(tx, executiveContext, executive);
             block.setTransactionReceipt(i, resultReceipt);
             executiveContext->getState()->commit();
         }
@@ -259,13 +255,7 @@ ExecutiveContext::Ptr BlockVerifier::parallelExecuteBlock(
 
 
     txDag->setTxExecuteFunc([&](Transaction::Ptr _tr, ID _txId, Executive::Ptr _executive) {
-
-
-#if 0
-        std::pair<ExecutionResult, TransactionReceipt::Ptr> resultReceipt =
-            execute(envInfo, _tr, OnOpFunc(), executiveContext);
-#endif
-        auto resultReceipt = execute(_tr, OnOpFunc(), executiveContext, _executive);
+        auto resultReceipt = execute(_tr, executiveContext, _executive);
 
         block.setTransactionReceipt(_txId, resultReceipt);
         executiveContext->getState()->commit();
@@ -284,9 +274,7 @@ ExecutiveContext::Ptr BlockVerifier::parallelExecuteBlock(
                 (void)_r;
                 EnvInfo envInfo(block.blockHeader(), m_pNumberHash, 0);
                 envInfo.setPrecompiledEngine(executiveContext);
-                auto executive = createAndInitExecutive();
-                executive->setEnvInfo(envInfo);
-                executive->setState(executiveContext->getState());
+                auto executive = createAndInitExecutive(executiveContext->getState(), envInfo);
 
                 while (!txDag->hasFinished())
                 {
@@ -369,7 +357,8 @@ ExecutiveContext::Ptr BlockVerifier::parallelExecuteBlock(
             for (size_t i = 0; i < receipts->size(); ++i)
             {
                 BLOCKVERIFIER_LOG(ERROR) << LOG_BADGE("FISCO_DEBUG") << LOG_KV("index", i)
-                                         << "receipt=" << *receipts->at(i);
+                                         << LOG_KV("hash", block.transaction(i)->hash())
+                                         << ",receipt=" << *receipts->at(i);
             }
 #endif
             BOOST_THROW_EXCEPTION(InvalidBlockWithBadStateOrReceipt() << errinfo_comment(
@@ -413,84 +402,26 @@ TransactionReceipt::Ptr BlockVerifier::executeTransaction(
             << LOG_DESC("[executeTransaction] Error during execute initExecutiveContext")
             << LOG_KV("errorMsg", boost::diagnostic_information(e));
     }
-    auto executive = createAndInitExecutive();
     EnvInfo envInfo(blockHeader, m_pNumberHash, 0);
     envInfo.setPrecompiledEngine(executiveContext);
-    executive->setEnvInfo(envInfo);
-    executive->setState(executiveContext->getState());
+    auto executive = createAndInitExecutive(executiveContext->getState(), envInfo);
     // only Rpc::call will use executeTransaction, RPC do catch exception
-    return execute(_t, OnOpFunc(), executiveContext, executive);
+    return execute(_t, executiveContext, executive);
 }
-
-
-#if 0
-std::pair<ExecutionResult, TransactionReceipt::Ptr> BlockVerifier::execute(EnvInfo const& _envInfo,
-    Transaction const& _t, OnOpFunc const& _onOp, ExecutiveContext::Ptr executiveContext)
-{
-    auto onOp = _onOp;
-#if ETH_VMTRACE
-    if (isChannelVisible<VMTraceChannel>())
-        onOp = Executive::simpleTrace();  // override tracer
-#endif
-
-    // Create and initialize the executive. This will throw fairly cheaply and quickly if the
-    // transaction is bad in any way.
-    Executive e(executiveContext->getState(), _envInfo);
-    ExecutionResult res;
-    e.setResultRecipient(res);
-
-    // OK - transaction looks valid - execute.
-    try
-    {
-        e.initialize(_t);
-        if (!e.execute())
-            e.go(onOp);
-        e.finalize();
-    }
-    catch (StorageException const& e)
-    {
-        BLOCKVERIFIER_LOG(ERROR) << LOG_DESC("get StorageException") << LOG_KV("what", e.what());
-        BOOST_THROW_EXCEPTION(e);
-    }
-    catch (Exception const& _e)
-    {
-        // only OutOfGasBase ExecutorNotFound exception will throw
-        BLOCKVERIFIER_LOG(ERROR) << diagnostic_information(_e);
-    }
-    catch (std::exception const& _e)
-    {
-        BLOCKVERIFIER_LOG(ERROR) << _e.what();
-    }
-
-    e.loggingException();
-
-    return make_pair(
-        res, std::make_shared<TransactionReceipt>(executiveContext->getState()->rootHash(false),
-                 e.gasUsed(), e.logs(), e.status(), e.takeOutput().takeBytes(), e.newAddress()));
-}
-#endif
-
 
 dev::eth::TransactionReceipt::Ptr BlockVerifier::execute(dev::eth::Transaction::Ptr _t,
-    dev::eth::OnOpFunc const& _onOp, dev::blockverifier::ExecutiveContext::Ptr executiveContext,
-    Executive::Ptr executive)
+    dev::blockverifier::ExecutiveContext::Ptr executiveContext, Executive::Ptr executive)
 {
-    auto onOp = _onOp;
-#if ETH_VMTRACE
-    if (isChannelVisible<VMTraceChannel>())
-        onOp = Executive::simpleTrace();  // override tracer
-#endif
     // Create and initialize the executive. This will throw fairly cheaply and quickly if the
     // transaction is bad in any way.
     executive->reset();
-
 
     // OK - transaction looks valid - execute.
     try
     {
         executive->initialize(_t);
         if (!executive->execute())
-            executive->go(onOp);
+            executive->go();
         executive->finalize();
     }
     catch (StorageException const& e)
@@ -514,9 +445,8 @@ dev::eth::TransactionReceipt::Ptr BlockVerifier::execute(dev::eth::Transaction::
         executive->takeOutput().takeBytes(), executive->newAddress());
 }
 
-dev::executive::Executive::Ptr BlockVerifier::createAndInitExecutive()
+dev::executive::Executive::Ptr BlockVerifier::createAndInitExecutive(
+    std::shared_ptr<StateFace> _s, dev::executive::EnvInfo const& _envInfo)
 {
-    Executive::Ptr executive = std::make_shared<Executive>();
-    executive->setEvmFlags(m_evmFlags);
-    return executive;
+    return std::make_shared<Executive>(_s, _envInfo, m_evmFlags & EVMFlags::FreeStorageGas);
 }

@@ -1,3 +1,122 @@
+### 2.7.1
+(2020-12-07)
+
+**更改**
+
+- 完善`fisco-sync`工具，实现新节点加入群组时从[数据仓库](https://data-doc.readthedocs.io/zh_CN/latest/docs/WeBankBlockchain-Data-Stash/index.html)拉取指定块高快照数据的功能
+
+**修复**
+
+- 修复mysql存储模式下，系统表缺少hash_2_block表信息的问题
+- 修复scalable存储模式下，从数据仓库拉取数据后的格式转换问题
+
+**兼容性**
+
+**向前兼容**，旧版本可以直接替换程序升级
+
+|            | 推荐版本                | 最低版本  | 说明                   |
+| ---------- | ----------------------- | --------- | ---------------------- |
+| 控制台     | 2.7.0                  | 1.0.4     |                        |
+| Java SDK        | 2.7.0                   | 2.6.1     |                        |
+| WebSDK        | 2.6.0                   | 2.0.4     |                        |
+| generator  | 1.7.0                   | 1.1.0     | 搭建新链需要使用该版本 |
+| 浏览器     | 2.0.2                   | 2.0.0-rc2 |                        |
+| Solidity   | 最高支持 solidity 0.6.10 | 0.4.11    |                        |
+| amdb-proxy | 2.3.0                   | 2.0.2     |                        |
+
+更多，请参考[版本与兼容性描述](https://fisco-bcos-documentation.readthedocs.io/zh_CN/latest/docs/change_log/index.html)。
+
+### 2.7.0
+(2020-11-20)
+
+**新增**
+
+- 合约生命周期管理提供revokeManager功能
+- 新增委员权限投票的查询接口
+- 支持取消事件订阅
+- 添加批量返回回执的方法getBatchReceiptsByBlockNumberAndRange和getBatchReceiptsByBlockHashAndRange
+- 添加getNodeInfo接口，返回节点订阅的topics信息
+- Table合约增加address类型的EQ condition查询
+
+
+**更改**
+
+- MySQL存储模式支持MySQL 8.0
+- 重构交易和区块相关的RPC接口，返回交易和区块的所有字段内容
+- 交易推送的回执中带有交易执行结果的报错信息
+- P2P模块添加读写idle检查的逻辑
+
+**修复**
+
+- 解决gcc9和clang12编译报错的问题
+- Precompiled合约报错信息写入到回执中，给出更明确的报错提示
+- 优化落盘加密，解决落盘加密模式下，存储空间占用大的问题
+- 修复MacOS系统下CachedStorage清理缓存导致节点宕机的问题
+- 修复MySQL存储模式下，CNS合约名过长导致区块提交异常的问题
+
+**兼容性**
+
+**向前兼容**，旧版本可以直接替换程序升级
+
+|            | 推荐版本                | 最低版本  | 说明                   |
+| ---------- | ----------------------- | --------- | ---------------------- |
+| 控制台     | 2.7.0                  | 1.0.4     |                        |
+| Java SDK        | 2.7.0                   | 2.6.1     |                        |
+| WebSDK        | 2.6.0                   | 2.0.4     |                        |
+| generator  | 1.7.0                   | 1.1.0     | 搭建新链需要使用该版本 |
+| 浏览器     | 2.0.2                   | 2.0.0-rc2 |                        |
+| Solidity   | 最高支持 solidity 0.6.10 | 0.4.11    |                        |
+| amdb-proxy | 2.3.0                   | 2.0.2     |                        |
+
+更多，请参考[版本与兼容性描述](https://fisco-bcos-documentation.readthedocs.io/zh_CN/latest/docs/change_log/index.html)。
+
+
+### 2.6.0
+(2020-08-10)
+
+
+**新增**
+
+- 新增对Solidity 0.6的支持
+- 新增对国产麒麟操作系统V10（Kunpeng-920/arm aarch64）的支持
+- 新增节点间时间对齐机制
+- 新增对IPv6的支持
+- 新增群组SDK白名单机制，默认关闭
+- 新增获取区块头的接口`getBlockheaderByNumber/getBlockHeaderByHash`
+- 新增支持配置区块执行超时时间
+
+**更改**
+
+- rPBFT共识算法引入vrf随机数算法，进一步保证共识算法的安全性
+- evm引擎由aleth-interpreter替换为evmone
+- 升级EVMC接口版本为7.3.0
+- 源码编译要求GCC版本不小于5.4.0
+- 支持AMOP消息路由到节点自身
+- MySQL存储模式下区块等数据使用二进制存储并启动压缩
+
+**修复**
+
+- 修复因为交易广播标记缓存没有清理干净导致的轻微内存泄露问题
+- 修复raft共识下，非leader节点交易池中的交易不能被打包的问题
+- 在MySQL存储模式下，Solidity合约写接口中调用Table的select接口时，偶现的Gas计算不一致问题
+- 用户自己生成的错误证书导致coredump问题
+- 在Solidity中使用汇编调用以太坊预编译合约0x1-0x9，对错误输入没有返回0的问题
+
+**兼容性**
+
+**向前兼容**，旧版本可以直接替换程序升级
+
+|            | 推荐版本                | 最低版本  | 说明                   |
+| ---------- | ----------------------- | --------- | ---------------------- |
+| 控制台     | 1.1.0                  | 1.0.4     |                        |
+| SDK        | 2.6.0                   | 2.0.4     |                        |
+| generator  | 1.6.0                   | 1.1.0     | 搭建新链需要使用该版本 |
+| 浏览器     | 2.0.2                   | 2.0.0-rc2 |                        |
+| Solidity   | 最高支持 solidity 0.6.10 | 0.4.11    |                        |
+| amdb-proxy | 2.3.0                   | 2.0.2     |                        |
+
+更多，请参考[版本与兼容性描述](https://fisco-bcos-documentation.readthedocs.io/zh_CN/latest/docs/change_log/index.html)。
+
 ### v2.5.0
 (2020-06-05)
 

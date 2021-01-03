@@ -59,6 +59,7 @@ void Transaction::decode(RLP const& rlp, CheckTransaction _checkSig)
 
 void Transaction::decodeRC1(RLP const& rlp, CheckTransaction _checkSig)
 {
+    string invalidFieldName = "nonce";
     try
     {
         if (!rlp.isList())
@@ -66,13 +67,18 @@ void Transaction::decodeRC1(RLP const& rlp, CheckTransaction _checkSig)
                                   << errinfo_comment("rc1 transaction RLP must be a list"));
 
         m_nonce = rlp[0].toInt<u256>();
+        invalidFieldName = "gasPrice";
         m_gasPrice = rlp[1].toInt<u256>();
+        invalidFieldName = "gas";
         m_gas = rlp[2].toInt<u256>();
+        invalidFieldName = "blockLimit";
         m_blockLimit = rlp[3].toInt<u256>();
+        invalidFieldName = "receiveAddress";
         m_type = rlp[4].isEmpty() ? ContractCreation : MessageCall;
         m_receiveAddress = rlp[4].isEmpty() ? Address() : rlp[4].toHash<Address>(RLP::VeryStrict);
+        invalidFieldName = "value";
         m_value = rlp[5].toInt<u256>();
-
+        invalidFieldName = "transactionData";
         if (!rlp[6].isData())
             BOOST_THROW_EXCEPTION(InvalidTransactionFormat()
                                   << errinfo_comment("rc1 transaction data RLP must be an array"));
@@ -82,7 +88,7 @@ void Transaction::decodeRC1(RLP const& rlp, CheckTransaction _checkSig)
         // v -> rlp[7].toInt<NumberVType>() - VBase;  // 7
         // r -> rlp[8].toInt<u256>();             // 8
         // s -> rlp[9].toInt<u256>();             // 9
-
+        invalidFieldName = "signature";
         m_vrs = dev::crypto::SignatureFromRLP(rlp, 7);
 
         if (_checkSig >= CheckTransaction::Cheap && !m_vrs->isValid())
@@ -93,14 +99,15 @@ void Transaction::decodeRC1(RLP const& rlp, CheckTransaction _checkSig)
     }
     catch (Exception& _e)
     {
-        _e << errinfo_name(
-            "invalid rc1 transaction format: " + toString(rlp) + " RLP: " + toHex(rlp.data()));
+        _e << errinfo_name("invalid rc1 transaction format, invalid field name: " +
+                           invalidFieldName + " RLP: " + toHex(rlp.data()));
         throw;
     }
 }
 
 void Transaction::decodeRC2(RLP const& rlp, CheckTransaction _checkSig)
 {
+    string invalidFieldName = "nonce";
     try
     {
         if (!rlp.isList())
@@ -108,28 +115,36 @@ void Transaction::decodeRC2(RLP const& rlp, CheckTransaction _checkSig)
                                   << errinfo_comment("rc2 transaction RLP must be a list"));
 
         m_nonce = rlp[0].toInt<u256>();
+        invalidFieldName = "gasPrice";
         m_gasPrice = rlp[1].toInt<u256>();
+        invalidFieldName = "gas";
         m_gas = rlp[2].toInt<u256>();
+        invalidFieldName = "blockLimit";
         m_blockLimit = rlp[3].toInt<u256>();
+        invalidFieldName = "receiveAddress";
         m_type = rlp[4].isEmpty() ? ContractCreation : MessageCall;
         m_receiveAddress = rlp[4].isEmpty() ? Address() : rlp[4].toHash<Address>(RLP::VeryStrict);
+        invalidFieldName = "value";
         m_value = rlp[5].toInt<u256>();
-
+        invalidFieldName = "transactionData";
         if (!rlp[6].isData())
             BOOST_THROW_EXCEPTION(InvalidTransactionFormat()
                                   << errinfo_comment("rc2 transaction data RLP must be an array"));
 
         m_data = rlp[6].toBytes();
+        invalidFieldName = "chainId";
         m_chainId = rlp[7].toInt<u256>();
+        invalidFieldName = "groupId";
         m_groupId = rlp[8].toInt<u256>();
+        invalidFieldName = "extraData";
         m_extraData = rlp[9].toBytes();
 
         // decode v r s by increasing rlp index order for faster decoding
         // NumberVType v = getVFromRLP(rlp[10]);
         // u256 r = rlp[11].toInt<u256>();
         // u256 s = rlp[12].toInt<u256>();
+        invalidFieldName = "signature";
         m_vrs = dev::crypto::SignatureFromRLP(rlp, 10);
-
         if (_checkSig >= CheckTransaction::Cheap && !m_vrs->isValid())
             BOOST_THROW_EXCEPTION(InvalidSignature());
 
@@ -138,8 +153,8 @@ void Transaction::decodeRC2(RLP const& rlp, CheckTransaction _checkSig)
     }
     catch (Exception& _e)
     {
-        _e << errinfo_name(
-            "invalid rc2 transaction format: " + toString(rlp) + " RLP: " + toHex(rlp.data()));
+        _e << errinfo_name("invalid rc2 transaction format, invalid Field:" + invalidFieldName +
+                           ", RLP: " + toHex(rlp.data()));
         throw;
     }
 }
@@ -163,7 +178,7 @@ Address const& Transaction::sender() const
         if (!m_vrs)
             BOOST_THROW_EXCEPTION(TransactionIsUnsigned());
 
-        auto p = crypto::Recover(m_vrs, sha3(WithoutSignature));
+        auto p = crypto::Recover(m_vrs, hash(WithoutSignature));
         if (!p)
             BOOST_THROW_EXCEPTION(InvalidSignature());
         m_sender = right160(crypto::Hash(bytesConstRef(p.data(), sizeof(p))));
@@ -253,23 +268,17 @@ int64_t Transaction::baseGasRequired(
     return g;
 }
 
-h256 Transaction::sha3(IncludeSignature _sig) const
+h256 Transaction::hash(IncludeSignature _sig) const
 {
     if (_sig == WithSignature && m_hashWith)
         return m_hashWith;
 
     bytes s;
     encode(s, _sig);
-
     auto ret = crypto::Hash(s);
     if (_sig == WithSignature)
         m_hashWith = ret;
     return ret;
-}
-
-void Transaction::updateTransactionHashWithSig(dev::h256 const& txHash)
-{
-    m_hashWith = txHash;
 }
 
 void Transaction::setRpcCallback(RPCCallback callBack)

@@ -23,6 +23,8 @@
  */
 #pragma once
 #include <libblockchain/BlockChainInterface.h>
+#include <libledger/LedgerParamInterface.h>
+#include <libnetwork/Host.h>
 #include <libp2p/P2PMessageFactory.h>
 #include <libp2p/Service.h>
 #include <libtxpool/TxPool.h>
@@ -45,6 +47,9 @@ public:
     FakeService() : Service()
     {
         m_messageFactory = std::make_shared<dev::p2p::P2PMessageFactory>();
+        std::shared_ptr<dev::network::Host> host = std::make_shared<dev::network::Host>();
+        host->setThreadPool(std::make_shared<dev::ThreadPool>("host", 1));
+        setHost(host);
     }
     void setSessionInfos(dev::p2p::P2PSessionInfos& sessionInfos) { m_sessionInfos = sessionInfos; }
     void appendSessionInfo(P2PSessionInfo const& info) { m_sessionInfos.push_back(info); }
@@ -237,8 +242,8 @@ public:
         dev::h256 const& _txHash, dev::eth::LocalisedTransaction&) override
     {
         (void)_txHash;
-        return std::make_pair(std::make_shared<LocalisedTransactionReceipt>(
-                                  dev::executive::TransactionException::None),
+        return std::make_pair(
+            std::make_shared<LocalisedTransactionReceipt>(dev::eth::TransactionException::None),
             std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>>());
     }
     CommitResult commitBlock(std::shared_ptr<dev::eth::Block> block,
@@ -255,7 +260,11 @@ public:
     }
 
     dev::bytes getCode(dev::Address) override { return bytes(); }
-    bool checkAndBuildGenesisBlock(GenesisBlockParam&, bool = true) override { return true; }
+    bool checkAndBuildGenesisBlock(
+        std::shared_ptr<dev::ledger::LedgerParamInterface>, bool = true) override
+    {
+        return true;
+    }
     std::string getSystemConfigByKey(std::string const&, int64_t) override { return "300000000"; };
     dev::h512s sealerList() override { return m_sealerList; }
     dev::h512s observerList() override { return m_observerList; }

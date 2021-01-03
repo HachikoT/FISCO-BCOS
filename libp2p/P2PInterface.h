@@ -22,6 +22,7 @@
 #pragma once
 
 #include <libdevcore/FixedHash.h>
+#include <libnetwork/Host.h>
 #include <libnetwork/SessionFace.h>
 #include <libp2p/Common.h>
 #include <libp2p/P2PMessage.h>
@@ -47,6 +48,8 @@ class P2PSession;
 typedef std::function<void(dev::network::NetworkException, std::shared_ptr<dev::p2p::P2PSession>,
     std::shared_ptr<dev::p2p::P2PMessage>)>
     CallbackFuncWithSession;
+typedef std::function<void(dev::network::NetworkException, std::shared_ptr<dev::p2p::P2PSession>)>
+    DisconnectCallbackFuncWithSession;
 typedef std::function<void(const std::string&, const std::string&)> CallbackFuncForTopicVerify;
 class P2PInterface
 {
@@ -81,9 +84,12 @@ public:
 
     virtual void registerHandlerByProtoclID(
         PROTOCOL_ID protocolID, CallbackFuncWithSession handler) = 0;
+    virtual void registerDisconnectHandlerByProtocolID(
+        PROTOCOL_ID const&, DisconnectCallbackFuncWithSession)
+    {}
 
     virtual void removeHandlerByProtocolID(PROTOCOL_ID const&) {}
-
+    virtual void removeDisconnectHandlerByProtocolID(PROTOCOL_ID const&) {}
     virtual void registerHandlerByTopic(std::string topic, CallbackFuncWithSession handler) = 0;
 
     virtual P2PSessionInfos sessionInfos() = 0;
@@ -92,6 +98,8 @@ public:
     virtual bool isConnected(NodeID const& _nodeID) const = 0;
 
     virtual std::set<std::string> topics() = 0;
+
+    virtual std::shared_ptr<dev::network::Host> host() = 0;
 
     virtual dev::h512s getNodeListByGroupID(GROUP_ID groupID) = 0;
     virtual void setGroupID2NodeList(std::map<GROUP_ID, dev::h512s> _groupID2NodeList) = 0;

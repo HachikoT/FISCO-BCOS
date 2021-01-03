@@ -27,7 +27,6 @@
 
 namespace dev
 {
-// SHA-3 convenience routines.
 
 /// Calculate SM3-256 hash of the given input and load it into the given output.
 /// @returns false if o_output.size() != 32.
@@ -46,6 +45,8 @@ inline SecureFixedHash<32> sm3Secure(bytesConstRef _input)
     sm3(_input, ret.writable().ref());
     return ret;
 }
+
+bool sm3(const uint8_t* _data, size_t _size, uint8_t* _hash);
 
 /// Calculate SM3-256 hash of the given input, returning as a 256-bit hash.
 inline h256 sm3(bytes const& _input)
